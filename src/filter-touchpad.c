@@ -155,7 +155,7 @@ accelerator_filter_post_normalized(struct motion_filter *filter,
 	} else {
 		factor = 300 / 37.5 + (150.0 * 150.0 - 300.0 * 150.0) / (37.5 * velocity);
 	}
-	double screen_dots_per_mm = 133.0 / 25.4;
+	double screen_dots_per_mm = 1.25 * 133.0 / 25.4;
 	struct normalized_coords cret;
 	cret.x = mm_x * factor * screen_dots_per_mm;
 	cret.y = mm_y * factor * screen_dots_per_mm;
@@ -222,6 +222,8 @@ touchpad_accelerator_set_speed(struct motion_filter *filter,
 	return true;
 }
 
+static uint64_t lasttime = 0;
+
 static struct normalized_coords
 touchpad_constant_filter(struct motion_filter *filter,
 			 const struct device_float_coords *unaccelerated,
@@ -230,6 +232,26 @@ touchpad_constant_filter(struct motion_filter *filter,
 	struct touchpad_accelerator *accel =
 		(struct touchpad_accelerator *)filter;
 	struct normalized_coords normalized;
+
+	struct normalized_coords kdpi = normalize_for_dpi(unaccelerated, accel->dpi);
+	double mm_x = kdpi.x * 25.4 / 1000;
+	double mm_y = kdpi.y * 25.4 / 1000;
+	const double display_dpmm = 1.25 * 133.0 / 25.4;  //not sure hwy needed
+	normalized.x = mm_x * display_dpmm;
+	normalized.y = mm_y * display_dpmm;
+
+	{
+		static double total_y;
+		if (!lasttime || (time - lasttime) > 1000000) {
+			// start fresh
+			total_y = 0.0;
+		}
+		lasttime = time;
+		total_y += normalized.y;
+	}
+
+	return normalized;
+
 	/* We need to use the same baseline here as the accelerated code,
 	 * otherwise our unaccelerated speed is different to the accelerated
 	 * speed on the plateau.
@@ -238,13 +260,13 @@ touchpad_constant_filter(struct motion_filter *filter,
 	 * TP_MAGIC_SLOWDOWN so we only have one number here but meanwhile
 	 * this will do.
 	 */
-	const double baseline = 0.9;
+	/* const double baseline = 0.9; */
 
-	normalized = normalize_for_dpi(unaccelerated, accel->dpi);
-	normalized.x = baseline * TP_MAGIC_SLOWDOWN * normalized.x;
-	normalized.y = baseline * TP_MAGIC_SLOWDOWN * normalized.y;
+	/* normalized = normalize_for_dpi(unaccelerated, accel->dpi); */
+	/* normalized.x = baseline * TP_MAGIC_SLOWDOWN * normalized.x; */
+	/* normalized.y = baseline * TP_MAGIC_SLOWDOWN * normalized.y; */
 
-	return normalized;
+	/* return normalized; */
 }
 
 static void
