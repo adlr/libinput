@@ -56,6 +56,8 @@ struct touchpad_accelerator {
 	int dpi;
 
 	double speed_factor;    /* factor based on speed setting */
+	/* chrome os items */
+	uint64_t prev_time;
 };
 
 /**
@@ -132,12 +134,52 @@ accelerator_filter_post_normalized(struct motion_filter *filter,
 		(struct touchpad_accelerator *) filter;
 	struct device_float_coords accelerated;
 
+	/* start chromiums os version */
+	/* first, convert intput to mm/s */
+	struct normalized_coords kdpi = normalize_for_dpi(unaccelerated, accel->dpi);
+	double mm_x = kdpi.x * 25.4 / 1000;
+	double mm_y = kdpi.y * 25.4 / 1000;
+	double dt = (time - accel->prev_time) / 1000000.0;  // seconds
+	// Sanity check dt
+	/* printf("%zu - %zu / 1M = %f\n", time, accel->prev_time, dt); */
+	if (dt < 0.002 || dt > 0.02)
+		dt = 0.01;
+	accel->prev_time = time;
+	double velocity = sqrt((mm_x * mm_x + mm_y * mm_y) / (dt * dt));  // mm/s
+	// compute scale factor
+	double factor = 1.0;
+	if (velocity < 32) {
+		factor = 32.0 / 37.5;
+	} else if (velocity < 150) {
+		factor = velocity / 37.5;
+	} else {
+		factor = 300 / 37.5 + (150.0 * 150.0 - 300.0 * 150.0) / (37.5 * velocity);
+	}
+	double screen_dots_per_mm = 133.0 / 25.4;
+	struct normalized_coords cret;
+	cret.x = mm_x * factor * screen_dots_per_mm;
+	cret.y = mm_y * factor * screen_dots_per_mm;
+	/* printf("%f %f (dt %f) v %f f %f out %f %f\n", */
+	/*        mm_x, mm_y, dt, velocity, factor, cret.x, cret.y); */
+	return cret;
+	//double vx = mm_x
+	/* end chromium os version */
+
+
 	/* Accelerate for device units, normalize afterwards */
-	accelerated = accelerator_filter_generic(filter,
-						 unaccelerated,
-						 data,
-						 time);
-	return normalize_for_dpi(&accelerated, accel->dpi);
+	/* accelerated = accelerator_filter_generic(filter, */
+	/* 					 unaccelerated, */
+	/* 					 data, */
+	/* 					 time); */
+	/* struct normalized_coords ret = normalize_for_dpi(&accelerated, accel->dpi); */
+	/* if (ret.x > 0) { */
+	/* 	ret.x = 1; */
+	/* 	ret.y = ret.x / 2; */
+	/* } */
+	/* printf("adlr test %zu %f %f %f %f %f %f\n", time, unaccelerated->x, unaccelerated->y, */
+	/*        accelerated.x, accelerated.y, ret.x, ret.y); */
+	/* return ret; */
+	
 }
 
 /* Maps the [-1, 1] speed setting into a constant acceleration
@@ -168,6 +210,7 @@ static bool
 touchpad_accelerator_set_speed(struct motion_filter *filter,
 		      double speed_adjustment)
 {
+	printf("SET SPEED: %f\n", speed_adjustment);
 	struct touchpad_accelerator *accel_filter =
 		(struct touchpad_accelerator *)filter;
 
@@ -346,6 +389,8 @@ create_pointer_accelerator_filter_touchpad(int dpi,
 	smoothener->threshold = event_delta_smooth_threshold,
 	smoothener->value = event_delta_smooth_value,
 	filter->trackers.smoothener = smoothener;
+
+	filter->prev_time = 0;
 
 	return &filter->base;
 }
