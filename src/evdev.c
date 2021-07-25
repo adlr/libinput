@@ -2693,6 +2693,7 @@ evdev_post_scroll(struct evdev_device *device,
 		if (event.x == 0.0)
 			axes &= ~bit(LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL);
 
+		/* printf("post scroll: %f %f\n", event.x, event.y); */
 		evdev_notify_axis(device,
 				  time,
 				  axes,
