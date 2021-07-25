@@ -282,6 +282,11 @@ enum suspend_trigger {
 	SUSPEND_TABLET_MODE     = 0x8,
 };
 
+struct scroll_out_event {
+	double dx, dy;
+	uint64_t dt;  // µs
+};
+
 struct tp_dispatch {
 	struct evdev_dispatch base;
 	struct evdev_device *device;
@@ -414,6 +419,11 @@ struct tp_dispatch {
 		struct {
 			uint64_t h, v;
 		} duration;
+		struct scroll_out_event last_scrolls[3];  // last true use scrolls
+		int last_scrolls_size;
+		struct scroll_out_event fling_scroll;  // next artificial scroll
+		//struct normalized_coords last_out_delta;
+		struct libinput_timer fling_timer;
 	} scroll;
 
 	enum touchpad_event queued;

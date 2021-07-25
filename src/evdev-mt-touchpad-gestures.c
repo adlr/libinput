@@ -133,6 +133,16 @@ tp_gesture_init_scroll(struct tp_dispatch *tp)
 	tp->scroll.duration.v = 0;
 	tp->scroll.vector = zero;
 	tp->scroll.time_prev = 0;
+	for (int i = 0; i < ARRAY_LENGTH(tp->scroll.last_scrolls); i++) {
+		tp->scroll.last_scrolls[i].dx = 0;
+		tp->scroll.last_scrolls[i].dy = 0;
+		tp->scroll.last_scrolls[i].dt = 0;
+	}
+	tp->scroll.last_scrolls_size = 0;
+	//printf("INIT SCROLL\n");
+	tp->scroll.fling_scroll.dx = 0;
+	tp->scroll.fling_scroll.dy = 0;
+	tp->scroll.fling_scroll.dt = 0;
 }
 
 static inline struct device_float_coords
@@ -860,6 +870,38 @@ tp_gesture_tap_timeout(struct tp_dispatch *tp, uint64_t time)
 		tp_gesture_handle_event(tp, GESTURE_EVENT_HOLD_TIMEOUT, time);
 }
 
+void
+tp_gesture_fling_timeout(uint64_t now, void *data)
+{
+	struct tp_dispatch *tp = data;
+
+	/* printf("fling: %f %f\n", tp->scroll.fling_scroll.dx, */
+	/*       tp->scroll.fling_scroll.dy); */
+	struct normalized_coords delta;
+	delta.x = tp->scroll.fling_scroll.dx;
+	delta.y = tp->scroll.fling_scroll.dy;
+	evdev_post_scroll(tp->device,
+			  now,
+			  LIBINPUT_POINTER_AXIS_SOURCE_FINGER,
+			  &delta);
+	tp->scroll.fling_scroll.dx *= 0.96;
+	tp->scroll.fling_scroll.dy *= 0.96;
+	if (fabs(tp->scroll.fling_scroll.dx) < .017 &&
+	    fabs(tp->scroll.fling_scroll.dy) < .017) {
+		tp->scroll.fling_scroll.dx = 0;
+		tp->scroll.fling_scroll.dy = 0;
+		tp->scroll.fling_scroll.dt = 0;
+		/* printf("fling petered out\n"); */
+		evdev_stop_scroll(tp->device,
+				  now,
+				  LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
+		return;
+	}
+	// do another callback
+	uint64_t hz60 = 16667;  // 16.6ms
+	libinput_timer_set(&tp->scroll.fling_timer, now + hz60);
+}
+
 static void
 tp_gesture_detect_motion_gestures(struct tp_dispatch *tp, uint64_t time)
 {
@@ -1064,6 +1106,19 @@ tp_gesture_handle_state_none(struct tp_dispatch *tp, uint64_t time)
 	if (ntouches == 0)
 		return;
 
+	if (tp->scroll.fling_scroll.dx ||
+	    tp->scroll.fling_scroll.dy) {
+		/* printf("stop fling\n"); */
+		libinput_timer_cancel(&tp->scroll.fling_timer);
+		tp->scroll.fling_scroll.dx = 0;
+		tp->scroll.fling_scroll.dy = 0;
+		tp->scroll.fling_scroll.dt = 0;
+		tp->scroll.last_scrolls_size = 0;
+		evdev_stop_scroll(tp->device,
+				  time,
+				  LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
+	}
+
 	if (ntouches == 1) {
 		first->gesture.initial = first->point;
 		tp->gesture.touches[0] = first;
@@ -1182,8 +1237,25 @@ tp_gesture_handle_state_scroll(struct tp_dispatch *tp, uint64_t time)
 	if (normalized_is_zero(delta))
 		return;
 
+	
+	// grab before prev_time is overwritten with time
+	uint64_t dt = time - tp->scroll.time_prev;
 	tp_gesture_start(tp, time);
 	tp_gesture_apply_scroll_constraints(tp, &raw, &delta, time);
+	//printf("post scroll: %f %f\n", delta.x, delta.y);
+	// push into our buffer
+	if (tp->scroll.last_scrolls_size >= 2)
+		tp->scroll.last_scrolls[2] = tp->scroll.last_scrolls[1];
+	if (tp->scroll.last_scrolls_size >= 1)
+		tp->scroll.last_scrolls[1] = tp->scroll.last_scrolls[0];
+	tp->scroll.last_scrolls[0].dx = delta.x;
+	tp->scroll.last_scrolls[0].dy = delta.y;
+	tp->scroll.last_scrolls[0].dt = dt;
+	tp->scroll.last_scrolls_size++;
+	if (tp->scroll.last_scrolls_size > ARRAY_LENGTH(tp->scroll.last_scrolls))
+		tp->scroll.last_scrolls_size = ARRAY_LENGTH(tp->scroll.last_scrolls);
+	/* printf("inserted %f %f %zu\n", tp->scroll.last_scrolls[0].dx, */
+	/*        tp->scroll.last_scrolls[0].dy, tp->scroll.last_scrolls[0].dt); */
 	evdev_post_scroll(tp->device,
 			  time,
 			  LIBINPUT_POINTER_AXIS_SOURCE_FINGER,
@@ -1333,15 +1405,90 @@ tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time,
 		tp_gesture_post_gesture(tp, time, ignore_motion);
 }
 
+struct scroll_out_event regress_scroll_velocity(struct scroll_out_event *last_scrolls,
+						int len) {
+	double tt_ = 0.0;  // Cumulative sum of t^2.
+	double t_ = 0.0;   // Cumulative sum of t.
+	double tx_ = 0.0;  // Cumulative sum of t * x.
+	double ty_ = 0.0;  // Cumulative sum of t * y.
+	double x_ = 0.0;   // Cumulative sum of x.
+	double y_ = 0.0;   // Cumulative sum of y.
+	struct scroll_out_event ret;
+	ret.dt = 1000000;
+	if (len <= 1) {
+		ret.dx = ret.dy = 0;
+		return ret;
+	}
+	double time_ = 0.0;  // seconds
+	double x_coord_ = 0.0;
+	double y_coord_ = 0.0;
+	for (int i = len - 1; i >= 0; i--) {
+		time_ += last_scrolls[i].dt / 1000000.0;  // µs -> s
+		x_coord_ += last_scrolls[i].dx;
+		y_coord_ += last_scrolls[i].dy;
+		tt_ += time_ * time_;
+		t_ += time_;
+		tx_ += time_ * x_coord_;
+		ty_ += time_ * y_coord_;
+		x_ += x_coord_;
+		y_ += y_coord_;
+	}
+	/* Note the regression determinant only depends on the values of t, and should
+	   never be zero so long as (1) count > 1, and (2) dt values are all non-zero. */
+	double det = len * tt_ - t_ * t_;
+	if (det) {
+		double det_inv = 1.0 / det;
+		ret.dx = (len * tx_ - t_ * x_) * det_inv;
+		ret.dy = (len * ty_ - t_ * y_) * det_inv;
+	} else {
+		ret.dx = 0;
+		ret.dy = 0;
+	}
+	return ret;
+}
+
 void
 tp_gesture_stop_twofinger_scroll(struct tp_dispatch *tp, uint64_t time)
 {
 	if (tp->scroll.method != LIBINPUT_CONFIG_SCROLL_2FG)
 		return;
 
-	evdev_stop_scroll(tp->device,
-			  time,
-			  LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
+	// compute fling velocity
+	struct scroll_out_event init =
+		regress_scroll_velocity(tp->scroll.last_scrolls,
+					tp->scroll.last_scrolls_size);
+	if ((init.dx || init.dy) && init.dt) {
+		// Will do a fling
+		double vx = init.dx / (init.dt / 1000000);  // mm/s
+		double vy = init.dy / (init.dt / 1000000);  // mm/s
+		// Assume 60hz display refresh
+		tp->scroll.fling_scroll.dx = vx / 60;
+		tp->scroll.fling_scroll.dy = vy / 60;
+		tp->scroll.fling_scroll.dt = 16667;
+		/* printf("start fling v(%f %f) %f %f %zu\n", vx, vy, */
+		/*        tp->scroll.fling_scroll.dx, */
+		/*        tp->scroll.fling_scroll.dy, tp->scroll.fling_scroll.dt); */
+		libinput_timer_set(&tp->scroll.fling_timer,
+				   time + tp->scroll.fling_scroll.dt);
+	} else {
+
+	/* const double min_fling_pixels = 1; */
+	/* // convert scroll detlas from touchpad hz dt to display (60hz) dt */
+	/* tp->scroll.last_out_delta.x *= 16666.666667 / (time - tp->scroll.time_prev); */
+	/* tp->scroll.last_out_delta.y *= 16666.666667 / (time - tp->scroll.time_prev); */
+	/* if (abs(tp->scroll.last_out_delta.x) > min_fling_pixels || */
+	/*     abs(tp->scroll.last_out_delta.y) > min_fling_pixels) { */
+	/* 	printf("start fling %f\n", (time - tp->scroll.time_prev) / 1000000.0); */
+	/* 	// TODO(adlr): make delta make sense for 60hz rather than touchpad hz */
+	/* 	uint64_t hz60 = 16667;  // 16.6ms */
+	/* 	libinput_timer_set(&tp->scroll.fling_timer, time + hz60); */
+	/* } else { */
+		tp->scroll.fling_scroll.dx = 0;
+		tp->scroll.fling_scroll.dy = 0;
+		evdev_stop_scroll(tp->device,
+				  time,
+				  LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
+	}
 }
 
 static void
@@ -1539,6 +1686,15 @@ tp_init_gesture(struct tp_dispatch *tp)
 			    tp_libinput_context(tp),
 			    timer_name,
 			    tp_gesture_hold_timeout, tp);
+
+	snprintf(timer_name,
+		 sizeof(timer_name),
+		 "%s fling",
+		 evdev_device_get_sysname(tp->device));
+	libinput_timer_init(&tp->scroll.fling_timer,
+			    tp_libinput_context(tp),
+			    timer_name,
+			    tp_gesture_fling_timeout, tp);
 }
 
 void
