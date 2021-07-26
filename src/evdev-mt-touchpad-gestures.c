@@ -243,6 +243,7 @@ tp_gesture_post_pointer_motion(struct tp_dispatch *tp, uint64_t time)
 		struct device_float_coords unaccel;
 
 		unaccel = tp_scale_to_xaxis(tp, raw);
+		tp_notify_motion(tp, delta, time);
 		pointer_notify_motion(&tp->device->base,
 				      time,
 				      &delta,

@@ -453,7 +453,7 @@ tp_stop_actions(struct tp_dispatch *tp, uint64_t time)
 {
 	tp_edge_scroll_stop_events(tp, time);
 	tp_gesture_cancel(tp, time);
-	tp_tap_suspend(tp, time);
+	/* tp_tap_suspend(tp, time); */
 }
 
 struct device_coords
@@ -1916,6 +1916,20 @@ tp_handle_state(struct tp_dispatch *tp,
 	tp_apply_rotation(tp->device);
 }
 
+void
+tp_notify_motion(struct tp_dispatch *tp, struct normalized_coords delta,
+		 uint64_t time)
+{
+	if (tp->tap.suspended) {
+		tp->tap.delta_since_suspend.x += delta.x;
+		tp->tap.delta_since_suspend.y += delta.y;
+		if (abs(tp->tap.delta_since_suspend.x) < 4 &&
+		    abs(tp->tap.delta_since_suspend.y) < 5)
+			return;
+		tp_tap_resume(tp, time);
+	}
+}
+
 static inline void
 tp_debug_touch_state(struct tp_dispatch *tp,
 		     struct evdev_device *device)
@@ -2184,7 +2198,7 @@ tp_trackpoint_timeout(uint64_t now, void *data)
 	struct tp_dispatch *tp = data;
 
 	if (tp->palm.trackpoint_active) {
-		tp_tap_resume(tp, now);
+		/* tp_tap_resume(tp, now); */
 		tp->palm.trackpoint_active = false;
 	}
 	tp->palm.trackpoint_event_count = 0;
@@ -2235,7 +2249,7 @@ tp_keyboard_timeout(uint64_t now, void *data)
 		return;
 	}
 
-	tp_tap_resume(tp, now);
+	/* tp_tap_resume(tp, now); */
 
 	tp->dwt.keyboard_active = false;
 
@@ -2326,6 +2340,10 @@ tp_keyboard_event(uint64_t time, struct libinput_event *event, void *data)
 		    return;
 
 		tp_stop_actions(tp, time);
+		if (!tp->tap.suspended)
+			tp_tap_suspend(tp, time);
+		tp->tap.delta_since_suspend.x = 0;
+		tp->tap.delta_since_suspend.y = 0;
 		tp->dwt.keyboard_active = true;
 		timeout = DEFAULT_KEYBOARD_ACTIVITY_TIMEOUT_1;
 	} else {
