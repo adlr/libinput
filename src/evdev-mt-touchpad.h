@@ -445,6 +445,7 @@ struct tp_dispatch {
 		bool drag_lock_enabled;
 
 		unsigned int nfingers_down;	/* number of fingers down for tapping (excl. thumb/palm) */
+		struct normalized_coords delta_since_suspend;
 	} tap;
 
 	struct {
@@ -774,5 +775,9 @@ tp_init_thumb(struct tp_dispatch *tp);
 
 struct tp_touch*
 tp_thumb_get_touch(struct tp_dispatch *tp);
+
+void
+tp_notify_motion(struct tp_dispatch *tp, struct normalized_coords delta,
+		 uint64_t time);
 
 #endif
