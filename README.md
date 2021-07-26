@@ -11,6 +11,20 @@ provide the common set of functionality that users expect. Input event
 processing includes scaling touch coordinates, generating
 relative pointer events from touchpads, pointer acceleration, etc.
 
+What is different in this fork?
+-------------------------------
+
+This fork is my place to experiment with a few ideas. Specifically I'd like to
+try out:
+
+* Touchpad acceleration curve(s) that closely resemble what I'm
+accustomed to (ChromeOS and macOS)
+* Kinetic scrolling (that's what Linux folks call it when you scroll to fling
+some content and it keeps scrolling after you let go of the touchpad)
+* Improving palm rejection, esp by leveraging knowlege of keyboard input. This
+is already in the libevent codebase, but seems to have very tight timeouts and
+not work properly with Gnome Shell.
+
 User documentation
 ------------------
 
