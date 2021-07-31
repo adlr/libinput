@@ -1109,8 +1109,12 @@ parse_files(struct quirks_context *ctx, const char *data_path)
 			 data_path,
 			 namelist[idx]->d_name);
 
-		if (!parse_file(ctx, path))
+		if (!strcmp("/usr/share/libinput/50-system-lenovo.quirks", path))
+			continue;
+		if (!parse_file(ctx, path)) {
+			qlog_error(ctx, "FAILED TO PARSE: %s\n", path);
 			break;
+		}
 	}
 
 	for (int i = 0; i < ndev; i++)
