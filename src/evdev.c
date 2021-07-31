@@ -2068,6 +2068,11 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 	if (evdev_device_has_model_quirk(device, QUIRK_MODEL_HP_ZBOOK_STUDIO_G3))
 		libevdev_set_abs_maximum(device->evdev, ABS_MT_SLOT, 1);
 
+	/* Touchpad is not a clickpad but INPUT_PROP_BUTTONPAD is set */
+	if (evdev_device_has_model_quirk(device, QUIRK_MODEL_DELL_PRECISION7X50_TOUCHPAD))
+		libevdev_disable_property(device->evdev,
+					  INPUT_PROP_BUTTONPAD);
+
 	/* Generally we don't care about MSC_TIMESTAMP and it can cause
 	 * unnecessary wakeups but on some devices we need to watch it for
 	 * pointer jumps */

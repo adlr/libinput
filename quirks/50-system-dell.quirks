@@ -107,3 +107,8 @@ MatchBus=usb
 MatchVendor=0x2575
 MatchProduct=0x0204
 ModelDellCanvasTotem=1
+
+[Latitude 7x50 Touchpad]
+MatchName=DELL09C?:00 0488:120A Touchpad
+MatchDMIModalias=dmi:*svnDellInc.:pnPrecision7?50:*
+ModelDellPrecision7x50Touchpad=1
