@@ -1480,6 +1480,7 @@ tp_gesture_stop_twofinger_scroll(struct tp_dispatch *tp, uint64_t time)
 	/* } else { */
 		tp->scroll.fling_scroll.dx = 0;
 		tp->scroll.fling_scroll.dy = 0;
+		tp->scroll.fling_scroll.dt = 0;
 		evdev_stop_scroll(tp->device,
 				  time,
 				  LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
