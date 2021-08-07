@@ -2335,6 +2335,17 @@ tp_keyboard_event(uint64_t time, struct libinput_event *event, void *data)
 	 * ctrl+zoom or ctrl+click are possible */
 	is_modifier = tp_key_is_modifier(key);
 	if (is_modifier) {
+		/* Stop fling scroll when modifier pressed */
+		if (tp->scroll.fling_scroll.dt) {
+			tp->scroll.fling_scroll.dx = 0;
+			tp->scroll.fling_scroll.dy = 0;
+			tp->scroll.fling_scroll.dt = 0;
+			/* printf("fling petered out\n"); */
+			evdev_stop_scroll(tp->device,
+					  time,
+					  LIBINPUT_POINTER_AXIS_SOURCE_FINGER);
+		}
+
 		long_set_bit(tp->dwt.mod_mask, key);
 		return;
 	}
