@@ -1,0 +1,5 @@
+[Touchpad pressure override]
+MatchName=ETD2303:00 04F3:3083 Touchpad
+AttrPressureRange=6:4
+AttrPalmPressureThreshold=150
+AttrThumbPressureThreshold=40
